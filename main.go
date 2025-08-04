@@ -1,12 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
+
+	"github.com/CzarRamos/chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 const OK_STATUS_CODE = 200
@@ -14,6 +20,7 @@ const ERROR_STATUS_CODE = 400
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      *database.Queries
 }
 
 type chirp struct {
@@ -31,8 +38,19 @@ type chirpValidated struct {
 
 func main() {
 
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		fmt.Printf("error unable to open %s: %s", dbURL, err)
+		return
+	}
+
+	dbQueries := database.New(db)
+
 	config := apiConfig{
 		fileserverHits: atomic.Int32{},
+		dbQueries:      dbQueries,
 	}
 
 	serverMux := http.NewServeMux()
