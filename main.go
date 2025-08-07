@@ -7,9 +7,8 @@ import (
 	"os"
 	"sync/atomic"
 
-	config "github.com/CzarRamos/chirpy/internal/config"
+	"github.com/CzarRamos/chirpy/internal/config"
 	"github.com/CzarRamos/chirpy/internal/database"
-	handlers "github.com/CzarRamos/chirpy/internal/handlers"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
@@ -39,10 +38,18 @@ func main() {
 	homepageHandler := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
 
 	serverMux.Handle("/app/", userConfig.MiddlewareMetricsInc(homepageHandler))
+
 	serverMux.HandleFunc("GET /admin/metrics", userConfig.HandlerMetrics)
 	serverMux.HandleFunc("POST /admin/reset", userConfig.HandlerResetMetrics)
+
 	serverMux.HandleFunc("GET /api/healthz", userConfig.HandlerHealthz)
-	serverMux.HandleFunc("POST /api/validate_chirp", handlers.ChirpValidatorHandler)
+
+	serverMux.HandleFunc("POST /api/users", userConfig.CreateNewUserHandler)
+
+	serverMux.HandleFunc("GET /api/chirps", userConfig.GetAllChirpsHandler)
+	serverMux.HandleFunc("GET /api/chirps/{chirp_id}", userConfig.GetChirpViaIdHandler)
+	serverMux.HandleFunc("POST /api/chirps", userConfig.NewChirpHandler)
+	serverMux.HandleFunc("POST /api/login", userConfig.LoginHandler)
 
 	server := http.Server{
 		Addr:    ":8080",
