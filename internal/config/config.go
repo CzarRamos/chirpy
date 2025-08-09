@@ -1,6 +1,7 @@
 package config
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -337,28 +338,40 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// var tokenExpiresIn int
-	// if params.ExpiresInSeconds > chirp.EXPIRES_IN_SECONDS_MAX_LIMIT {
-	// 	tokenExpiresIn = chirp.EXPIRES_IN_SECONDS_MAX_LIMIT
-	// } else {
-	// 	tokenExpiresIn = params.ExpiresInSeconds
-	// }
-
-	userToken, err := auth.MakeJWT(foundUser.ID, config.SecretToken, time.Duration(3600)*time.Second)
+	newAccessToken, err := auth.MakeJWT(foundUser.ID, config.SecretToken)
 	if err != nil {
 		log.Printf("error creating token: %s", err)
 		w.WriteHeader(500)
 		return
 	}
 
-	log.Printf("IuserToken: %s", userToken)
+	newRefreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		log.Printf("error creating refresh token: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	// add new refresh token to Db
+	_, err = config.DbQueries.CreateRefreshToken(r.Context(), database.CreateRefreshTokenParams{
+		Token:     newRefreshToken.Token,
+		UpdatedAt: time.Now(),
+		ExpiresAt: newRefreshToken.ExpiresAt,
+		UserID:    foundUser.ID,
+	})
+	if err != nil {
+		log.Printf("error adding refresh tokento db: %s", err)
+		w.WriteHeader(500)
+		return
+	}
 
 	output := chirp.User{
-		ID:        foundUser.ID,
-		CreatedAt: foundUser.CreatedAt,
-		UpdatedAt: foundUser.UpdatedAt,
-		Email:     foundUser.Email,
-		Token:     userToken,
+		ID:           foundUser.ID,
+		CreatedAt:    foundUser.CreatedAt,
+		UpdatedAt:    foundUser.UpdatedAt,
+		Email:        foundUser.Email,
+		AccessToken:  newAccessToken,
+		RefreshToken: newRefreshToken.Token,
 	}
 
 	data, err := json.Marshal(output)
@@ -372,21 +385,86 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-// func (config *ApiConfig) BearerTestHandler(w http.ResponseWriter, r *http.Request) {
-// 	output, err := auth.GetTokenBearer(r.Header)
-// 	if err != nil {
-// 		log.Printf("error getting token bearer: %s", err)
-// 		w.WriteHeader(500)
-// 		return
-// 	}
+func (config *ApiConfig) RefreshHandler(w http.ResponseWriter, r *http.Request) {
+	refreshToken, err := auth.GetTokenBearer(r.Header)
+	if err != nil {
+		log.Printf("error getting token bearer info: %s", err)
+		w.WriteHeader(500)
+		return
+	}
 
-// 	data, err := json.Marshal(output)
-// 	if err != nil {
-// 		log.Printf("error marshalling returning user info: %s", err)
-// 		w.WriteHeader(500)
-// 		return
-// 	}
+	// check if token exists
+	foundRefreshToken, err := config.DbQueries.GetUserViaRefreshToken(r.Context(), refreshToken)
+	if err != nil {
+		log.Printf("error token is not valid: %s", err)
+		w.WriteHeader(401)
+		w.Write([]byte("error: token is not valid"))
+		return
+	}
 
-// 	w.Write([]byte(data))
-// 	w.WriteHeader(200)
-// }
+	// if token has already expired or has ever been revoked
+	if foundRefreshToken.ExpiresAt.Compare(time.Now()) <= 0 || foundRefreshToken.RevokedAt.Valid {
+		log.Printf("error token has expired")
+		w.WriteHeader(401)
+		w.Write([]byte("error: token is not valid"))
+		return
+	}
+
+	newJWTToken, err := auth.MakeJWT(foundRefreshToken.UserID, config.SecretToken)
+	if err != nil {
+		log.Printf("error creating JWT token: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	output := auth.NewAccessToken{
+		Token: newJWTToken,
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		log.Printf("error marshalling newly created access token: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Write(data)
+	w.WriteHeader(200)
+
+}
+
+func (config *ApiConfig) RevokeRefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
+	// get the token provided
+	refreshToken, err := auth.GetTokenBearer(r.Header)
+	if err != nil {
+		log.Printf("error getting token bearer info: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	// check if token exists
+	foundRefreshToken, err := config.DbQueries.GetUserViaRefreshToken(r.Context(), refreshToken)
+	if err != nil {
+		log.Printf("error token is not valid: %s", err)
+		w.WriteHeader(401)
+		w.Write([]byte("error: token is not valid"))
+		return
+	}
+
+	// proceed with revoking access
+	err = config.DbQueries.SetRefreshTokenRevoked(r.Context(), database.SetRefreshTokenRevokedParams{
+		RevokedAt: sql.NullTime{
+			Time:  time.Now(),
+			Valid: true,
+		},
+		UpdatedAt: time.Now(),
+		Token:     foundRefreshToken.Token,
+	})
+	if err != nil {
+		log.Printf("error revoking refresh token provided: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.WriteHeader(204)
+}

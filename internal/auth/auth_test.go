@@ -2,7 +2,6 @@ package auth_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/CzarRamos/chirpy/internal/auth"
 	"github.com/google/uuid"
@@ -83,9 +82,7 @@ func TestJWTValidToken(t *testing.T) {
 	userID := uuid.New()
 	//token secret
 	tokenSecret := "this-is-my-secret-token"
-	//duration
-	duration := time.Minute
-	newJWT, err := auth.MakeJWT(userID, tokenSecret, duration)
+	newJWT, err := auth.MakeJWT(userID, tokenSecret)
 	if err != nil {
 		t.Errorf(`MakeJWT failed: %v`, err)
 		return
@@ -103,25 +100,6 @@ func TestJWTValidToken(t *testing.T) {
 	}
 }
 
-func TestExpiredTokens(t *testing.T) {
-	//generate uuid
-	userID := uuid.New()
-	//token secret
-	tokenSecret := "this-is-my-secret-token"
-	//duration
-	duration := -time.Hour
-	newJWT, err := auth.MakeJWT(userID, tokenSecret, duration)
-	if err != nil {
-		t.Errorf(`MakeJWT failed: %v`, err)
-		return
-	}
-
-	_, err = auth.ValidateJWT(newJWT, tokenSecret)
-	if err == nil {
-		t.Errorf(`ValidateJWT should not have accepted expired token`)
-	}
-}
-
 func TestWrongSecretKey(t *testing.T) {
 	//generate uuid
 	userID := uuid.New()
@@ -129,9 +107,7 @@ func TestWrongSecretKey(t *testing.T) {
 	tokenSecret := "this-is-my-secret-token"
 	// some token secret for something else
 	differentTokenSecret := "this-is-a-different-secret-token"
-	//duration
-	duration := time.Minute
-	newJWT, err := auth.MakeJWT(userID, tokenSecret, duration)
+	newJWT, err := auth.MakeJWT(userID, tokenSecret)
 	if err != nil {
 		t.Errorf(`MakeJWT failed: %v`, err)
 		return
@@ -166,9 +142,7 @@ func TestCorruptedToken(t *testing.T) {
 	userID := uuid.New()
 	//token secret
 	tokenSecret := "this-is-my-secret-token"
-	//duration
-	duration := time.Minute
-	newJWT, err := auth.MakeJWT(userID, tokenSecret, duration)
+	newJWT, err := auth.MakeJWT(userID, tokenSecret)
 	if err != nil {
 		t.Errorf(`MakeJWT failed: %v`, err)
 		return

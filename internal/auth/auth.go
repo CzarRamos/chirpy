@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"log"
 	"net/http"
@@ -11,6 +13,17 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const DEFAULT_REFRESH_TOKEN_DURATION_IN_HOURS = 1440 // 1440 hours is 60 days
+
+type NewRefreshToken struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
+type NewAccessToken struct {
+	Token string `json:"token"`
+}
 
 func HashPassword(password string) (string, error) {
 	if len(password) <= 0 {
@@ -35,13 +48,12 @@ func CheckPasswordHash(password, hash string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
 
-func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
-
+func MakeJWT(userID uuid.UUID, tokenSecret string) (string, error) {
 	currentTime := time.Now()
 	newToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 		Issuer:    "chirpy",
 		IssuedAt:  jwt.NewNumericDate(currentTime),
-		ExpiresAt: jwt.NewNumericDate(currentTime.Add(expiresIn)),
+		ExpiresAt: jwt.NewNumericDate(currentTime.Add(time.Duration(3600) * time.Second)), // one hour
 		Subject:   userID.String(),
 	})
 
@@ -83,4 +95,20 @@ func GetTokenBearer(headers http.Header) (string, error) {
 		return "", errors.New("error: unable to parse Authorization header info")
 	}
 	return token, nil
+}
+
+func MakeRefreshToken() (NewRefreshToken, error) {
+	tokenBytes := make([]byte, 32)
+	_, err := rand.Read(tokenBytes)
+	if err != nil {
+		log.Printf("error creating random value for token: %s", err)
+		return NewRefreshToken{}, err
+	}
+
+	newRefreshToken := NewRefreshToken{
+		Token:     hex.EncodeToString(tokenBytes),
+		ExpiresAt: time.Now().Add(time.Duration(DEFAULT_REFRESH_TOKEN_DURATION_IN_HOURS) * time.Hour),
+	}
+
+	return newRefreshToken, nil
 }

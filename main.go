@@ -53,6 +53,8 @@ func main() {
 	serverMux.HandleFunc("GET /api/chirps/{chirp_id}", userConfig.GetChirpViaIdHandler)
 	serverMux.HandleFunc("POST /api/chirps", userConfig.NewChirpHandler)
 	serverMux.HandleFunc("POST /api/login", userConfig.LoginHandler)
+	serverMux.HandleFunc("POST /api/refresh", userConfig.RefreshHandler)
+	serverMux.HandleFunc("POST /api/revoke", userConfig.RevokeRefreshTokenHandler)
 
 	server := http.Server{
 		Addr:    ":8080",
