@@ -18,6 +18,7 @@ import (
 type ApiConfig struct {
 	FileserverHits atomic.Int32
 	DbQueries      *database.Queries
+	SecretToken    string
 }
 
 func (config *ApiConfig) HandlerResetMetrics(w http.ResponseWriter, r *http.Request) {
@@ -111,10 +112,26 @@ func (config *ApiConfig) CreateNewUserHandler(w http.ResponseWriter, r *http.Req
 
 func (config *ApiConfig) NewChirpHandler(w http.ResponseWriter, r *http.Request) {
 
+	output, err := auth.GetTokenBearer(r.Header)
+	if err != nil {
+		log.Printf("error getting token bearer: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	log.Printf("TOKEN BEARER: %s", output)
+
+	userID, err := auth.ValidateJWT(output, config.SecretToken)
+	if err != nil {
+		log.Printf("error validating new chirp token: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := chirp.ShortChirp{}
 	// correct info will be stored in params
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("error decoding parameters: %s", err)
 		w.WriteHeader(500)
@@ -139,7 +156,7 @@ func (config *ApiConfig) NewChirpHandler(w http.ResponseWriter, r *http.Request)
 		ID:        uuid.New(),
 		UpdatedAt: time.Now(),
 		Body:      filteredChirp.Message,
-		UserID:    filteredChirp.UserID,
+		UserID:    userID,
 	})
 	if err != nil {
 		log.Printf("error adding chirp: %s", err)
@@ -293,7 +310,9 @@ func (config *ApiConfig) GetChirpViaIdHandler(w http.ResponseWriter, r *http.Req
 func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
-	params := chirp.UserLogin{}
+	params := chirp.UserLogin{
+		ExpiresInSeconds: int(chirp.EXPIRES_IN_SECONDS_DEFAULT_LIMIT),
+	}
 	// correct info will be stored in params
 	err := decoder.Decode(&params)
 	if err != nil {
@@ -301,6 +320,8 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
+
+	log.Printf("params: %v", params)
 
 	foundUser, err := config.DbQueries.GetUserViaEmail(r.Context(), params.Email)
 	if err != nil {
@@ -316,11 +337,28 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// var tokenExpiresIn int
+	// if params.ExpiresInSeconds > chirp.EXPIRES_IN_SECONDS_MAX_LIMIT {
+	// 	tokenExpiresIn = chirp.EXPIRES_IN_SECONDS_MAX_LIMIT
+	// } else {
+	// 	tokenExpiresIn = params.ExpiresInSeconds
+	// }
+
+	userToken, err := auth.MakeJWT(foundUser.ID, config.SecretToken, time.Duration(3600)*time.Second)
+	if err != nil {
+		log.Printf("error creating token: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	log.Printf("IuserToken: %s", userToken)
+
 	output := chirp.User{
 		ID:        foundUser.ID,
 		CreatedAt: foundUser.CreatedAt,
 		UpdatedAt: foundUser.UpdatedAt,
 		Email:     foundUser.Email,
+		Token:     userToken,
 	}
 
 	data, err := json.Marshal(output)
@@ -333,3 +371,22 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(data))
 	w.WriteHeader(200)
 }
+
+// func (config *ApiConfig) BearerTestHandler(w http.ResponseWriter, r *http.Request) {
+// 	output, err := auth.GetTokenBearer(r.Header)
+// 	if err != nil {
+// 		log.Printf("error getting token bearer: %s", err)
+// 		w.WriteHeader(500)
+// 		return
+// 	}
+
+// 	data, err := json.Marshal(output)
+// 	if err != nil {
+// 		log.Printf("error marshalling returning user info: %s", err)
+// 		w.WriteHeader(500)
+// 		return
+// 	}
+
+// 	w.Write([]byte(data))
+// 	w.WriteHeader(200)
+// }

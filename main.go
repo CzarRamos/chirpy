@@ -26,11 +26,14 @@ func main() {
 		return
 	}
 
+	officialSecretToken := os.Getenv("secret")
+
 	dbQueries := database.New(db)
 
 	userConfig := config.ApiConfig{
 		FileserverHits: atomic.Int32{},
 		DbQueries:      dbQueries,
+		SecretToken:    officialSecretToken,
 	}
 
 	serverMux := http.NewServeMux()
