@@ -46,11 +46,11 @@ func main() {
 	serverMux.HandleFunc("POST /admin/reset", userConfig.HandlerResetMetrics)
 
 	serverMux.HandleFunc("GET /api/healthz", userConfig.HandlerHealthz)
-
 	serverMux.HandleFunc("POST /api/users", userConfig.CreateNewUserHandler)
-
+	serverMux.HandleFunc("PUT /api/users", userConfig.UpdateCredentialsHandler)
 	serverMux.HandleFunc("GET /api/chirps", userConfig.GetAllChirpsHandler)
 	serverMux.HandleFunc("GET /api/chirps/{chirp_id}", userConfig.GetChirpViaIdHandler)
+	serverMux.HandleFunc("DELETE /api/chirps/{chirp_id}", userConfig.DeleteChirpHandler)
 	serverMux.HandleFunc("POST /api/chirps", userConfig.NewChirpHandler)
 	serverMux.HandleFunc("POST /api/login", userConfig.LoginHandler)
 	serverMux.HandleFunc("POST /api/refresh", userConfig.RefreshHandler)

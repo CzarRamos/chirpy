@@ -64,7 +64,7 @@ func (config *ApiConfig) MiddlewareMetricsInc(next http.Handler) http.Handler {
 
 func (config *ApiConfig) CreateNewUserHandler(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
-	params := chirp.UserLogin{}
+	params := chirp.UserCredentials{}
 	// correct info will be stored in params
 	err := decoder.Decode(&params)
 	if err != nil {
@@ -311,9 +311,7 @@ func (config *ApiConfig) GetChirpViaIdHandler(w http.ResponseWriter, r *http.Req
 func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
-	params := chirp.UserLogin{
-		ExpiresInSeconds: int(chirp.EXPIRES_IN_SECONDS_DEFAULT_LIMIT),
-	}
+	params := chirp.UserCredentials{}
 	// correct info will be stored in params
 	err := decoder.Decode(&params)
 	if err != nil {
@@ -321,8 +319,6 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
-
-	log.Printf("params: %v", params)
 
 	foundUser, err := config.DbQueries.GetUserViaEmail(r.Context(), params.Email)
 	if err != nil {
@@ -467,4 +463,110 @@ func (config *ApiConfig) RevokeRefreshTokenHandler(w http.ResponseWriter, r *htt
 	}
 
 	w.WriteHeader(204)
+}
+
+func (config *ApiConfig) UpdateCredentialsHandler(w http.ResponseWriter, r *http.Request) {
+
+	// grab user access token
+	accessToken, err := auth.GetTokenBearer(r.Header)
+	if err != nil {
+		log.Printf("error getting token bearer info: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(accessToken, config.SecretToken)
+	if err != nil {
+		log.Printf("error token not valid: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := chirp.UserCredentials{}
+	// correct info will be stored in params
+	err = decoder.Decode(&params)
+	if err != nil {
+		log.Printf("error decoding parameters: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	newPasswordHash, err := auth.HashPassword(params.Password)
+	if err != nil {
+		log.Printf("error hashing password: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	err = config.DbQueries.UpdateUserCredentials(r.Context(), database.UpdateUserCredentialsParams{
+		Email:          params.Email,
+		HashedPassword: newPasswordHash,
+		ID:             userID,
+	})
+	if err != nil {
+		log.Printf("error updating user email and password: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	newUserCredentials := chirp.UserCredentials{
+		Email: params.Email,
+	}
+
+	data, err := json.Marshal(newUserCredentials)
+	if err != nil {
+		log.Printf("error marshalling found chirp: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Write(data)
+	w.WriteHeader(200)
+}
+
+func (config *ApiConfig) DeleteChirpHandler(w http.ResponseWriter, r *http.Request) {
+	// grab user access token
+	var err error
+
+	accessToken, err := auth.GetTokenBearer(r.Header)
+	if err != nil {
+		log.Printf("error getting token bearer info: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	chirpId := r.PathValue("chirp_id")
+
+	chirpUUID := uuid.Must(uuid.MustParse(chirpId), err)
+	foundChirp, err := config.DbQueries.GetChirpViaID(r.Context(), chirpUUID)
+	if err != nil {
+		log.Printf("error chirp does not exist: %s", err)
+		w.WriteHeader(404)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(accessToken, config.SecretToken)
+	if err != nil {
+		log.Printf("error token not valid: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	// if the user is not the author of the chirp
+	if foundChirp.UserID != userID {
+		log.Printf("error forbidden access")
+		w.WriteHeader(403)
+		return
+	}
+
+	err = config.DbQueries.DeleteChirpPerm(r.Context(), foundChirp.ID)
+	if foundChirp.UserID != userID {
+		log.Printf("error deleting chirp from db: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.WriteHeader(204)
+
 }
