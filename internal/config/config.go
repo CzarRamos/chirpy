@@ -13,6 +13,7 @@ import (
 	"github.com/CzarRamos/chirpy/internal/auth"
 	"github.com/CzarRamos/chirpy/internal/chirp"
 	"github.com/CzarRamos/chirpy/internal/database"
+	"github.com/CzarRamos/chirpy/internal/events"
 	"github.com/google/uuid"
 )
 
@@ -20,6 +21,7 @@ type ApiConfig struct {
 	FileserverHits atomic.Int32
 	DbQueries      *database.Queries
 	SecretToken    string
+	PolkaKey       string
 }
 
 func (config *ApiConfig) HandlerResetMetrics(w http.ResponseWriter, r *http.Request) {
@@ -368,6 +370,7 @@ func (config *ApiConfig) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Email:        foundUser.Email,
 		AccessToken:  newAccessToken,
 		RefreshToken: newRefreshToken.Token,
+		IsChirpyRed:  foundUser.IsChirpyRed.Bool,
 	}
 
 	data, err := json.Marshal(output)
@@ -569,4 +572,58 @@ func (config *ApiConfig) DeleteChirpHandler(w http.ResponseWriter, r *http.Reque
 
 	w.WriteHeader(204)
 
+}
+
+func (config *ApiConfig) UpgradeUserHandler(w http.ResponseWriter, r *http.Request) {
+
+	providedApiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		log.Printf("error getting api key info: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	if providedApiKey != config.PolkaKey {
+		log.Printf("error invalid key: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := auth.ChirpyEvent{}
+	// correct info will be stored in params
+	err = decoder.Decode(&params)
+	if err != nil {
+		log.Printf("error decoding parameters: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	// we only want the upgrade events. Everything else is ignored
+	if params.Event != events.UpgradeUserEvent {
+		log.Printf("error unrecognized event: %s", err)
+		w.WriteHeader(204)
+		return
+	}
+
+	err = config.DbQueries.UpgradeToChirpyRedViaID(r.Context(), params.Data.ID)
+	if err != nil {
+		log.Printf("error upgrading user to chirpy red: %s", err)
+		w.WriteHeader(404)
+		return
+	}
+
+	userInfo := chirp.User{
+		IsChirpyRed: true,
+	}
+
+	data, err := json.Marshal(userInfo)
+	if err != nil {
+		log.Printf("error marshalling newly created access token: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.WriteHeader(204)
+	w.Write(data)
 }

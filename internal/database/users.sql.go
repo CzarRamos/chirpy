@@ -21,7 +21,7 @@ VALUES(
     $3,
     $4
 )
-RETURNING id, hashed_password, created_at, updated_at, email
+RETURNING id, hashed_password, created_at, updated_at, email, is_chirpy_red
 `
 
 type CreateUserParams struct {
@@ -45,12 +45,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Email,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
 
 const getUserViaEmail = `-- name: GetUserViaEmail :one
-SELECT id, hashed_password, created_at, updated_at, email
+SELECT id, hashed_password, created_at, updated_at, email, is_chirpy_red
 FROM users
 WHERE email = $1
 `
@@ -64,6 +65,7 @@ func (q *Queries) GetUserViaEmail(ctx context.Context, email string) (User, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Email,
+		&i.IsChirpyRed,
 	)
 	return i, err
 }
@@ -91,5 +93,16 @@ type UpdateUserCredentialsParams struct {
 
 func (q *Queries) UpdateUserCredentials(ctx context.Context, arg UpdateUserCredentialsParams) error {
 	_, err := q.db.ExecContext(ctx, updateUserCredentials, arg.Email, arg.HashedPassword, arg.ID)
+	return err
+}
+
+const upgradeToChirpyRedViaID = `-- name: UpgradeToChirpyRedViaID :exec
+UPDATE users
+SET is_chirpy_red = TRUE
+WHERE id = $1
+`
+
+func (q *Queries) UpgradeToChirpyRedViaID(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, upgradeToChirpyRedViaID, id)
 	return err
 }

@@ -25,6 +25,15 @@ type NewAccessToken struct {
 	Token string `json:"token"`
 }
 
+type AuthUserData struct {
+	ID uuid.UUID `json:"user_id"`
+}
+
+type ChirpyEvent struct {
+	Event string       `json:"event"`
+	Data  AuthUserData `json:"data"`
+}
+
 func HashPassword(password string) (string, error) {
 	if len(password) <= 0 {
 		return "", errors.New("error: password cannot be empty")
@@ -111,4 +120,16 @@ func MakeRefreshToken() (NewRefreshToken, error) {
 	}
 
 	return newRefreshToken, nil
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authInfo := headers.Get("Authorization")
+	if len(authInfo) <= 0 {
+		return "", errors.New("error: cannot find Authorization header")
+	}
+	token, hasFoundToken := strings.CutPrefix(authInfo, "ApiKey ")
+	if !hasFoundToken {
+		return "", errors.New("error: unable to parse Authorization header info")
+	}
+	return token, nil
 }
