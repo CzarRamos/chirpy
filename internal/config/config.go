@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,9 @@ import (
 	"github.com/CzarRamos/chirpy/internal/events"
 	"github.com/google/uuid"
 )
+
+var SORT_ASC_KEYWORD = "asc"
+var SORT_DESC_KEYWORD = "desc"
 
 type ApiConfig struct {
 	FileserverHits atomic.Int32
@@ -246,24 +250,66 @@ func newShortChirpData(userChirp chirp.ShortChirp) []byte {
 }
 
 func (config *ApiConfig) GetAllChirpsHandler(w http.ResponseWriter, r *http.Request) {
-	allChirps, err := config.DbQueries.GetAllChirpsSinceCreation(r.Context())
-	if err != nil {
-		log.Printf("error getting all chirps: %s", err)
-		w.WriteHeader(500)
-		return
-	}
+
+	authorID := r.URL.Query().Get("author_id")
+	customSort := r.URL.Query().Get("sort")
 
 	foundChirps := make([]chirp.DetailedChirp, 0)
-	for _, chirpRow := range allChirps {
-		foundChirp := chirp.DetailedChirp{
-			ID:        chirpRow.ID,
-			CreatedAt: chirpRow.CreatedAt,
-			UpdatedAt: chirpRow.UpdatedAt,
-			Body:      chirpRow.Body,
-			UserID:    chirpRow.UserID,
+
+	if len(authorID) > 0 {
+		// authorId exists
+		var err error
+		authorUUID := uuid.Must(uuid.MustParse(authorID), err)
+		if err != nil {
+			log.Printf("error parsing authorID to UUID: %s", err)
+			w.WriteHeader(500)
+			return
 		}
 
-		foundChirps = append(foundChirps, foundChirp)
+		allUserChirps, err := config.DbQueries.GetAllChirpsOfUserID(r.Context(), authorUUID)
+		if err != nil {
+			log.Printf("error getting user's chirps: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+		for _, chirpRow := range allUserChirps {
+			foundChirp := chirp.DetailedChirp{
+				ID:        chirpRow.ID,
+				CreatedAt: chirpRow.CreatedAt,
+				UpdatedAt: chirpRow.UpdatedAt,
+				Body:      chirpRow.Body,
+				UserID:    chirpRow.UserID,
+			}
+
+			foundChirps = append(foundChirps, foundChirp)
+		}
+	} else {
+		// authorId does not exist, show all chirps
+		allChirps, err := config.DbQueries.GetAllChirpsSinceCreation(r.Context())
+		if err != nil {
+			log.Printf("error getting all chirps: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		for _, chirpRow := range allChirps {
+			foundChirp := chirp.DetailedChirp{
+				ID:        chirpRow.ID,
+				CreatedAt: chirpRow.CreatedAt,
+				UpdatedAt: chirpRow.UpdatedAt,
+				Body:      chirpRow.Body,
+				UserID:    chirpRow.UserID,
+			}
+
+			foundChirps = append(foundChirps, foundChirp)
+		}
+	}
+
+	// FoundChirps starts off sorted from oldest to latest
+
+	// this sorts from latest to oldest
+	if customSort == SORT_DESC_KEYWORD {
+		sort.Slice(foundChirps, func(i, j int) bool { return foundChirps[i].CreatedAt.After(foundChirps[j].CreatedAt) })
 	}
 
 	data, err := json.Marshal(foundChirps)
